@@ -3,8 +3,11 @@
 #include "twai.h"
 #include "esp_random.h"
 #include "time.h"
+#include <sys/time.h>
+#include <unistd.h>
 #include "wifi.h"
 #include "sntp.h"
+#include <string.h>
 // Include FreeRTOS for delay
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -39,22 +42,30 @@ void app_main(void)
 
     esp_sntp_init();
 
-    char filename[64];
-    localtime_r(&now, &timeinfo);
-    strftime(filename, sizeof(filename), "%c", &timeinfo);
-    ESP_LOGI(TAG, "The current date/time in Brazil is: %s", filename);
-
     // Set timezone to America/SaoPaulo
     setenv("TZ", "<-03>3", 1);
     tzset();
+    time_t now;
+    struct tm timeinfo;
+    char filename[64];
+    time(&now);
+    localtime_r(&now, &timeinfo);
+    strftime(filename, sizeof(filename), "/%y-%m-%d-(%H_%M_%S).txt", &timeinfo);
+    ESP_LOGI(TAG, "The current date/time in Brazil is: %s", filename);
+
     FILE *f;
     while (1)
     {
-        f = sd_open_file("/batatao.txt");
+        f = sd_open_file(filename);
         if (f == NULL)
             return;
-        fprintf(f, "%llu,%ld,%llu\n", time(NULL), message.identifier, *(uint64_t *)message.data);
-        ESP_LOGI(TAG, "timestamp: %llu", time(NULL));
+
+        struct timeval tv_now;
+
+        gettimeofday(&tv_now, NULL);
+        int64_t time_us = (int64_t)tv_now.tv_sec * 1000000L + (int64_t)tv_now.tv_usec;
+        fprintf(f, "%llu,%ld,%llu\n", time_us, message.identifier, *(uint64_t *)message.data);
+        ESP_LOGI(TAG, "timestamp: %llu", time_us);
         sd_close_file(f);
         vTaskDelay(500 / portTICK_PERIOD_MS);
     }
