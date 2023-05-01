@@ -17,7 +17,7 @@
 
 static const char *TAG = "sd_card";
 
-#define MOUNT_POINT "/sdcard"
+#define MOUNT_POINT "/sd"
 
 // Pin assignments can be set in menuconfig, see "SD SPI Example Configuration"
 // menu. You can also change the pin assignments here by changing the following
@@ -123,6 +123,7 @@ FILE *sd_open_file(const char *path)
     if (f == NULL)
     {
         ESP_LOGE(TAG, "Failed to open file for writing");
+        ESP_ERROR_CHECK(ESP_FAIL);
         return NULL;
     }
     ESP_LOGI(TAG, "Opened file %s", file_path);

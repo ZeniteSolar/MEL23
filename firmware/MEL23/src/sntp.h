@@ -1,6 +1,6 @@
 #ifndef SNTP_H
 #define SNTP_H
 
-void esp_sntp_init(void);
+esp_err_t esp_sntp_init(void);
 
 #endif

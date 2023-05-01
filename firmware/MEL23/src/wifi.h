@@ -2,7 +2,7 @@
 #define WIFI_H
 
 
-void wifi_init_sta(void);
+esp_err_t wifi_init_sta(void);
 
 void wifi_deinit_sta(void);
 #endif
