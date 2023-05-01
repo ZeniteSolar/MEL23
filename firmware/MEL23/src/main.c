@@ -67,10 +67,13 @@ void app_main(void)
         esp_restart();
     message.identifier = 10;
     uint8_t data[] = {10, 20, 30, 40, 50, 60, 70, 80, 90};
-    *(uint32_t *)message.data = *(uint32_t *)data;
+
+    memcpy(message.data, data, sizeof(message.data)/sizeof(uint8_t));
     message.data_length_code = 8;
     uint64_t start,end;
+
     DMA_ATTR static char sd_buffer[43]; 
+    start = esp_timer_get_time();
     while (1)
     {
 
@@ -81,17 +84,12 @@ void app_main(void)
         
         PRINT_EXECUTION_TIME(int64_t time_us = (int64_t)tv_now.tv_sec * 1000000L + (int64_t)tv_now.tv_usec;);
 
-        PRINT_EXECUTION_TIME(sprintf(sd_buffer, "%llu,%ld,%02x%02x%02x%02x%02x%02x%02x%02x\n",
+
+
+        PRINT_EXECUTION_TIME(sprintf(sd_buffer, "%llu,%ld,%016lx\n",
         time_us,
         message.identifier, 
-        message.data[0], 
-        message.data[0], 
-        message.data[0], 
-        message.data[0], 
-        message.data[0], 
-        message.data[0], 
-        message.data[0], 
-        message.data[0]);
+        *(uint32_t *)message.data);
         fwrite(sd_buffer, 1, sizeof(sd_buffer) / sizeof(char), f));
 
         // PRINT_EXECUTION_TIME(fprintf(f, "%llu,%ld,%02x%02x%02x%02x%02x%02x%02x%02x\n",
@@ -115,6 +113,7 @@ void app_main(void)
 
         if (++i > 1000)
         {
+            end = esp_timer_get_time();
             i = 0;
             PRINT_EXECUTION_TIME(
             sd_close_file(f);
@@ -122,6 +121,8 @@ void app_main(void)
             if (f == NULL)
                 continue;
             );
+            ESP_LOGI(TAG, "line %d, took: %llu microseconds", __LINE__,(end - start));
+            start = esp_timer_get_time();
         }
     }
     sd_free(f, &sd);
