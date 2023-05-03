@@ -19,31 +19,52 @@
     __VA_ARGS__;                           \
     end = esp_timer_get_time();   \
     ESP_LOGI(TAG, "line %d, took: %llu microseconds", __LINE__,(end - start))
-#undef PRINT_EXECUTION_TIME
-#define PRINT_EXECUTION_TIME(...) __VA_ARGS__
+// #undef PRINT_EXECUTION_TIME
+// #define PRINT_EXECUTION_TIME(...) __VA_ARGS__
 
 #define DEBUG_PIN_0 GPIO_NUM_26
 #define DEBUG_PIN_1 GPIO_NUM_27
 #define DEBUG_PIN_2 GPIO_NUM_14
 
+#define SD_FILE_REFRESH_TIME_US     30000000 // In microseconds
+#define FILE_EXTENSION_LEN 5
+
 #define TAG "main"
+
+
+size_t create_filename_by_date(char *filename, int size)
+{
+    time_t now;
+    struct tm timeinfo;
+
+    time(&now);
+    localtime_r(&now, &timeinfo);
+    return strftime(filename, size, "/%y-%m-%d_%H%M%S.csv", &timeinfo);
+
+}
+
+esp_err_t increment_filename_counter(char *filename, size_t size)
+{
+    for(int i = 0; i <= 4; i++)
+    {
+        if (++filename[size -(FILE_EXTENSION_LEN + i)] <= 'f')
+        {
+            if (filename[size -(FILE_EXTENSION_LEN + i)] == ':')
+                filename[size -(FILE_EXTENSION_LEN + i)] = 'a';
+            return ESP_OK;
+        }
+        
+        filename[size -(FILE_EXTENSION_LEN + i)] = '0';
+    }
+    return ESP_FAIL;
+}
 
 void app_main(void)
 {
     sd_t sd = sd_init();
     if (sd.err != ESP_OK)
-        return;
+        esp_restart();
 
-    gpio_reset_pin(DEBUG_PIN_0);
-    gpio_set_direction(DEBUG_PIN_0, GPIO_MODE_OUTPUT);
-    gpio_set_level(DEBUG_PIN_0, 0);
-
-    gpio_reset_pin(DEBUG_PIN_1);
-    gpio_set_direction(DEBUG_PIN_1, GPIO_MODE_OUTPUT);
-    gpio_set_level(DEBUG_PIN_1, 0);
-
-    gpio_reset_pin(DEBUG_PIN_2);
-    gpio_set_direction(DEBUG_PIN_2, GPIO_MODE_OUTPUT);
 
     esp_sntp_init();
     twai_init();
@@ -51,78 +72,73 @@ void app_main(void)
     // Set timezone to America/SaoPaulo
     setenv("TZ", "<-03>3", 1);
     tzset();
-    time_t now;
-    struct tm timeinfo;
+    
     char filename[64];
-    time(&now);
-    localtime_r(&now, &timeinfo);
-    strftime(filename, sizeof(filename), "/%y-%m-%d_%H%M%S.txt", &timeinfo);
+    size_t filename_size = sizeof(filename) / sizeof(char);
+
+    filename_size = create_filename_by_date(filename, filename_size);
+
     ESP_LOGI(TAG, "The current date/time in Brazil is: %s", filename);
 
-    FILE *f;
-    twai_message_t message;
-    int i = 0;
-    f = sd_open_file(filename);
+    FILE *f = sd_open_file(filename);
     if (f == NULL)
         esp_restart();
-    message.identifier = 10;
-    uint8_t data[] = {10, 20, 30, 40, 50, 60, 70, 80, 90};
 
-    memcpy(message.data, data, sizeof(message.data)/sizeof(uint8_t));
-    message.data_length_code = 8;
+    twai_message_t message;
+    DMA_ATTR static char sd_buffer[37]; 
+    struct timeval tv_now;
     uint64_t start,end;
+    int write_char;
+    int i = 0;
+    int message_counter = 0;
 
-    DMA_ATTR static char sd_buffer[43]; 
     start = esp_timer_get_time();
-    while (1)
+    for(;;)
     {
+        /* Get can message */
+        twai_receive_task(&message);
 
-        struct timeval tv_now;
-        // twai_receive_task(&message);
-        
-        PRINT_EXECUTION_TIME(gettimeofday(&tv_now, NULL));
-        
-        PRINT_EXECUTION_TIME(int64_t time_us = (int64_t)tv_now.tv_sec * 1000000L + (int64_t)tv_now.tv_usec;);
-
+        /* Get timestamp in microseconds */
+        gettimeofday(&tv_now, NULL);
+        int64_t time_us = (int64_t)tv_now.tv_sec * 1000000L + (int64_t)tv_now.tv_usec;;
 
 
-        PRINT_EXECUTION_TIME(sprintf(sd_buffer, "%llu,%ld,%016lx\n",
-        time_us,
-        message.identifier, 
-        *(uint32_t *)message.data);
-        fwrite(sd_buffer, 1, sizeof(sd_buffer) / sizeof(char), f));
+        /* Write timestamp and message id into the buffer*/
+        write_char = sprintf(sd_buffer, "%llu,%ld,", time_us, message.identifier);
 
-        // PRINT_EXECUTION_TIME(fprintf(f, "%llu,%ld,%02x%02x%02x%02x%02x%02x%02x%02x\n",
-        // time_us,
-        // message.identifier, 
-        // message.data[0], 
-        // message.data[0], 
-        // message.data[0], 
-        // message.data[0], 
-        // message.data[0], 
-        // message.data[0], 
-        // message.data[0], 
-        // message.data[0]););
-        // PRINT_EXECUTION_TIME(fprintf(f, "%llu,%ld,", time_us, message.identifier););
-        // PRINT_EXECUTION_TIME(for (int i = 0; i < message.data_length_code; i++)
-        // {
-        //     fprintf(f, "%02x", message.data[i]);
-        // }
-        // );
-        // PRINT_EXECUTION_TIME(fprintf(f, "\n"););
-
-        if (++i > 1000)
+        /* Write the data into the buffer */
+        for (int j = 0; j < message.data_length_code; j++)
         {
-            end = esp_timer_get_time();
-            i = 0;
-            PRINT_EXECUTION_TIME(
+            write_char += sprintf(sd_buffer + write_char, "%02x",message.data[j]);
+        }
+        write_char += sprintf(sd_buffer + write_char, "\n");
+
+        /* Write sd buffer into the SD card*/
+        fwrite(sd_buffer, 1, write_char, f);
+        message_counter++;
+        /* Update file */
+        // Test 10000
+        if ((++i > 10000) || ((esp_timer_get_time() - start) > SD_FILE_REFRESH_TIME_US))
+        {
+
             sd_close_file(f);
+            ESP_LOGI(TAG, "%d", message_counter);
+            if (message_counter >= 100000)
+            {
+                ESP_LOGI(TAG, "end of test");
+                return;
+            }
+            
+            filename_size = create_filename_by_date(filename, filename_size);
+            
             f = sd_open_file(filename);
             if (f == NULL)
                 continue;
-            );
-            ESP_LOGI(TAG, "line %d, took: %llu microseconds", __LINE__,(end - start));
+
+            end = esp_timer_get_time();
+            
             start = esp_timer_get_time();
+            i = 0;
         }
     }
     sd_free(f, &sd);
