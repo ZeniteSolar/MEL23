@@ -1,5 +1,7 @@
 #include "twai.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "utils.h"
 
 #define PIN_NUM_RX CONFIG_TWAI_RX
@@ -36,12 +38,11 @@ esp_err_t twai_init(void)
         return ESP_FAIL;
     }
 
+
     return ESP_OK;
 }
 
 esp_err_t twai_receive_task(twai_message_t *message)
 {
-
-    ESP_RETURN_ON_ERROR_AND_PRINT(twai_receive(message, pdMS_TO_TICKS(10000)), TAG, "Failed to receive message");
-    return ESP_OK;
+    return twai_receive(message, pdMS_TO_TICKS(100));
 }
