@@ -28,6 +28,7 @@
 
 #define SD_FILE_REFRESH_TIME_US     30000000 // In microseconds
 #define FILE_EXTENSION_LEN 5
+#define CAN_SD_MESSAGE_SIZE 37
 
 #define TAG "main"
 
@@ -59,6 +60,14 @@ esp_err_t increment_filename_counter(char *filename, size_t size)
     return ESP_FAIL;
 }
 
+typedef struct 
+{
+    char *head;
+    char *consumed;
+    char *tail;
+}sd_buffer_t;
+
+
 void app_main(void)
 {
     sd_t sd = sd_init();
@@ -85,10 +94,16 @@ void app_main(void)
         esp_restart();
 
     twai_message_t message;
-    DMA_ATTR static char sd_buffer[37]; 
+
+    DMA_ATTR static char buffer[CAN_SD_MESSAGE_SIZE * 3072]; 
+    sd_buffer_t sd_buffer = {
+        .head = buffer,
+        .consumed = buffer,
+        .tail = buffer + sizeof(buffer) / sizeof(char),
+    };
+
     struct timeval tv_now;
     uint64_t start,end;
-    int write_char;
     int i = 0;
     int message_counter = 0;
 
@@ -96,41 +111,48 @@ void app_main(void)
     for(;;)
     {
         /* Get can message */
-        twai_receive_task(&message);
-
-        /* Get timestamp in microseconds */
-        gettimeofday(&tv_now, NULL);
-        int64_t time_us = (int64_t)tv_now.tv_sec * 1000000L + (int64_t)tv_now.tv_usec;;
-
-
-        /* Write timestamp and message id into the buffer*/
-        write_char = sprintf(sd_buffer, "%llu,%ld,", time_us, message.identifier);
-
-        /* Write the data into the buffer */
-        for (int j = 0; j < message.data_length_code; j++)
+        if (twai_receive_task(&message) == ESP_OK)
         {
-            write_char += sprintf(sd_buffer + write_char, "%02x",message.data[j]);
-        }
-        write_char += sprintf(sd_buffer + write_char, "\n");
+            /* Get timestamp in microseconds */
+            gettimeofday(&tv_now, NULL);
+            int64_t time_us = (int64_t)tv_now.tv_sec * 1000000L + (int64_t)tv_now.tv_usec;;
 
-        /* Write sd buffer into the SD card*/
-        fwrite(sd_buffer, 1, write_char, f);
-        message_counter++;
+            /* Write timestamp and message id into the buffer*/
+            sd_buffer.consumed += sprintf(sd_buffer.consumed, "%llu,%lx,", time_us, message.identifier);
+
+            /* Write the data into the buffer */
+            for (int j = 0; j < message.data_length_code; j++)
+            {
+                sd_buffer.consumed += sprintf(sd_buffer.consumed, "%02x",message.data[j]);
+            }
+            sd_buffer.consumed += sprintf(sd_buffer.consumed, "\n");
+
+            if (sd_buffer.consumed + CAN_SD_MESSAGE_SIZE > sd_buffer.tail)
+            {
+                
+                /* Write sd buffer into the SD card*/
+                fwrite(sd_buffer.head, 1, sd_buffer.consumed - sd_buffer.head , f);
+                /* Clear buffer index */
+                sd_buffer.consumed = sd_buffer.head;
+            }
+            message_counter++;
+        }
+
         /* Update file */
         // Test 10000
-        if ((++i > 10000) || ((esp_timer_get_time() - start) > SD_FILE_REFRESH_TIME_US))
+        if ((++i > 300000) || ((esp_timer_get_time() - start) > SD_FILE_REFRESH_TIME_US))
         {
+            /* Write sd buffer into the SD card*/
+            fwrite(sd_buffer.head, 1, sd_buffer.consumed - sd_buffer.head , f);
+            /* Clear buffer index */
+            sd_buffer.consumed = sd_buffer.head;
 
             sd_close_file(f);
-            ESP_LOGI(TAG, "%d", message_counter);
-            if (message_counter >= 100000)
-            {
-                ESP_LOGI(TAG, "end of test");
-                return;
-            }
+            printf("%d\n", message_counter);
+
             
-            filename_size = create_filename_by_date(filename, filename_size);
-            
+            create_filename_by_date(filename, filename_size);
+
             f = sd_open_file(filename);
             if (f == NULL)
                 continue;
