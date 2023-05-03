@@ -43,8 +43,10 @@ sd_t sd_init(void)
 #else
         .format_if_mount_failed = false,
 #endif // EXAMPLE_FORMAT_IF_MOUNT_FAILED
-        .max_files = 5,
-        .allocation_unit_size = 16 * 1024};
+        .max_files = 2,
+        .allocation_unit_size = 512 * 1024,
+        .disk_status_check_enable = false,
+        };
 
     const char mount_point[] = MOUNT_POINT;
     ESP_LOGI(TAG, "Initializing SD card");
@@ -58,7 +60,7 @@ sd_t sd_init(void)
     // host.max_freq_khz = 10000;
     sd.host = (sdmmc_host_t)SDSPI_HOST_DEFAULT();
     
-    sd.host.max_freq_khz = 10000;
+    sd.host.max_freq_khz = 18000;
     spi_bus_config_t bus_cfg = {
         .mosi_io_num = PIN_NUM_MOSI,
         .miso_io_num = PIN_NUM_MISO,
@@ -118,7 +120,7 @@ FILE *sd_open_file(const char *path)
 
     char file_path[EXAMPLE_MAX_CHAR_SIZE] = MOUNT_POINT;
     strcat(file_path, path);
-    ESP_LOGI(TAG, "Opening file %s", file_path);
+   // ESP_LOGI(TAG, "Opening file %s", file_path);
     FILE *f = fopen(file_path, "a");
     if (f == NULL)
     {
@@ -126,7 +128,7 @@ FILE *sd_open_file(const char *path)
         ESP_ERROR_CHECK(ESP_FAIL);
         return NULL;
     }
-    ESP_LOGI(TAG, "Opened file %s", file_path);
+    //ESP_LOGI(TAG, "Opened file %s", file_path);
 
     return f;
 }
@@ -135,7 +137,7 @@ esp_err_t sd_close_file(FILE *f)
 {
 
     fclose(f);
-    ESP_LOGI(TAG, "File closed");
+    //ESP_LOGI(TAG, "File closed");
     return ESP_OK;
 }
 
